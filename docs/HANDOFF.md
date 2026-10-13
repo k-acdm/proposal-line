@@ -49,9 +49,8 @@
 - あいさつ文プレースホルダ：提案書向け文面
 - 配信先ラジオの既定：`保護者＋生徒 両方`（毎回生徒にも見せる運用。※元々の既定も both）
 - **画像フォルダID**：`proposal-line-images`（`1RnVJA2cSyAypO7UZsySNU5mY3TfB4Cf1`）
-  - proposal-line では**コード側の定数 `IMAGE_FOLDER_ID` に固定**（`コード.js`）。
-    schedule-line と値が異なるため、プロパティではなくコードで持つ。
-    ふくちさんが入力するプロパティは LINEトークンと `RECIPIENTS_SPREADSHEET_ID` の2つのみ。
+  - schedule-line と同じく**スクリプトプロパティ `IMAGE_FOLDER_ID`** に入れる（ふくちさんが入力）。
+    持ち方は schedule-line と同一で、**値だけ** proposal-line 用（別フォルダ）。
 
 ## 実運用フロー（夏／冬／春に1回）
 
@@ -123,10 +122,10 @@
 |---|---|---|
 | `LINE_MESSAGING_CHANNEL_ACCESS_TOKEN` | ✅必須 | LINE送信用トークン（**schedule-line と同じ値**） |
 | `RECIPIENTS_SPREADSHEET_ID` | ✅必須 | 共有シート line-recipients のID（**schedule-line と同じ値**） |
+| `IMAGE_FOLDER_ID` | ✅必須 | proposal-line-images フォルダのID：`1RnVJA2cSyAypO7UZsySNU5mY3TfB4Cf1` |
 | `ADMIN_LINE_USER_ID` | テスト配信を使う場合に必要 | ふくちさんのLINE_USER_ID（schedule-line と同じ値） |
 | `IMAGE_URL_METHOD` | 任意 | `lh3`（既定）/ `thumbnail`。LINEで画像が出ないとき `thumbnail` |
 
-- **`IMAGE_FOLDER_ID` はプロパティ不要**：コード側の定数で `proposal-line-images`（`1RnVJA2cSyAypO7UZsySNU5mY3TfB4Cf1`）に固定済み。
 - `WEB_APP_URL` / `SPREADSHEET_ID` は proposal-line では不要（コードから参照しない）。
 
 ### oauthScopes（appsscript.json）

@@ -111,7 +111,7 @@ function _serveImage(imageName) {
  * @return {File|null}
  */
 function _findImageFile(imageName) {
-  var folderId = IMAGE_FOLDER_ID;
+  var folderId = _getRequiredProp('IMAGE_FOLDER_ID');
   var target = _normalizeName(imageName);
   if (!target) return null;
 
@@ -210,14 +210,6 @@ var LINE_MAX_MESSAGES_PER_PUSH = 5;
 var COMMON_IMAGE_PREFIX = '_';
 
 /**
- * 画像フォルダID（proposal-line-images）。
- * proposal-line ではプロパティではなくコード側で固定する
- * （schedule-line と値が異なるため。ふくちさんが入力するプロパティはLINEトークンと
- *   RECIPIENTS_SPREADSHEET_ID のみ）。
- */
-var IMAGE_FOLDER_ID = '1RnVJA2cSyAypO7UZsySNU5mY3TfB4Cf1';
-
-/**
  * 配信対象の一覧を返す（管理画面から google.script.run で呼ばれる）。
  * プライバシー配慮のため、LINE_USER_ID の実値と fileId は返さず「有無(boolean)」のみ返す。
  * @param {string=} mode - 'guardian' | 'student' | 'both'（省略時 both）
@@ -281,7 +273,7 @@ function _computeDelivery(mode) {
   var wantStudent = (mode !== 'guardian');
   var wantGuardian = (mode !== 'student');
 
-  var folder = DriveApp.getFolderById(IMAGE_FOLDER_ID);
+  var folder = DriveApp.getFolderById(_getRequiredProp('IMAGE_FOLDER_ID'));
   var recipients = _getRecipientsMap();
 
   var targets = [];
@@ -795,7 +787,7 @@ function deleteDeliveredImages() {
   var log = []; // 戻り値にも含める診断ログ（画面でも確認できるように）
   function L(msg) { Logger.log(msg); log.push(msg); }
 
-  var folderId = IMAGE_FOLDER_ID;
+  var folderId = _getRequiredProp('IMAGE_FOLDER_ID');
   L('▼ deleteDeliveredImages 開始');
   L('IMAGE_FOLDER_ID = ' + folderId);
 

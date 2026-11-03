@@ -1,6 +1,7 @@
 # 引き継ぎメモ（proposal-line）
 
 ## 最終更新
+2026-11-04 テスト配信・本配信の事前確認ダイアログに現在の送信順を表示（送る直前の目視確認用）
 2026-11-04 送信順の並べ替え機能を追加（管理画面で「あいさつ文／個別画像／共通画像1枚ずつ」を↑↓で入れ替え）
 2026-10-13 新規作成：schedule-line をベースに proposal-line を作成（授業内容提案書の配信）
 
@@ -43,7 +44,7 @@
 | 共有シート照合・管理画面 | `getDeliveryTargets` / `_computeDelivery` |
 | テスト配信・本配信 | `testSendSchedule` / `executeScheduleDelivery` / `_pushLineMessages` |
 | 配信後の画像削除 | `deleteDeliveredImages` |
-| 送信順の並べ替え | `_defaultSendOrder` / `_normalizeSendOrder` / `_buildScheduleMessageChunks`（画面側：`renderOrderList` / `moveOrderItem`） |
+| 送信順の並べ替え | `_defaultSendOrder` / `_normalizeSendOrder` / `_buildScheduleMessageChunks`（画面側：`renderOrderList` / `moveOrderItem` / `orderPlainText`） |
 
 ## schedule-line からの変更点（これだけ）
 - 画面タイトル：`proposal-line 授業内容提案書配信`
@@ -80,8 +81,9 @@
    - プレビューを押すたびに既定の順序へリセットされる（前回の並べ替えは記憶しない）
    - 並べ替え後に画像フォルダの共通画像を増減した場合は、配信時にエラーになるのでプレビューをやり直す
 7. **「🧪 テスト配信」で見え方確認**（選択した配信先での送信リスト先頭1件分が、分割も含めそのままふくちさんのLINEにのみ届く）
+   - 事前確認ダイアログに現在の送信順が上から順に出るので、送る前に目視確認する
 8. **「🚀 本配信」**（全生徒＋保護者へ）
-   - 事前確認ダイアログ → `confirm` → `prompt` に「配信」と入力、の多重確認
+   - 事前確認ダイアログ（現在の送信順を表示）→ `confirm` → `prompt` に「配信」と入力、の多重確認
 9. **配信成功後、「📁 配信済み画像を削除する」ボタンで画像をゴミ箱へ**
    - このボタンは本配信成功後にのみ表示される（うっかり削除防止）
    - ゴミ箱移動なので、必要なら復元可能

@@ -554,6 +554,34 @@
   }
 
   // === 配信 ===
+  /**
+   * 事前確認ダイアログ用：1項目ぶんの表記。
+   * 共通画像は Google ドライブ上のファイル名をそのまま出す（加工・短縮しない）。
+   */
+  function orderPlainLabel(token) {
+    if (token === 'greeting') return 'あいさつ文';
+    if (token === 'individual') return '個別画像';
+    if (token.indexOf('common:') === 0) {
+      return '共通画像 ' + token.substring('common:'.length);
+    }
+    return token;
+  }
+
+  /**
+   * 事前確認ダイアログ用：現在の送信順を上から順に列挙したテキストを返す。
+   * 表示のみで、配信ロジックには影響しない。
+   */
+  function orderPlainText() {
+    if (!sendOrder.length) {
+      return '【送信順】\n（「配信対象プレビュー」未実行のため既定の順序で送信します：\n' +
+        'あいさつ文 → 個別画像 → 共通画像（ファイル名の数値順））\n';
+    }
+    var lines = sendOrder.map(function(token, i) {
+      return (i + 1) + '. ' + orderPlainLabel(token);
+    });
+    return '【送信順】\n' + lines.join('\n') + '\n';
+  }
+
   function getGreeting() {
     return document.getElementById('greeting').value.trim();
   }
@@ -563,7 +591,8 @@
     if (!greeting) { alert('あいさつ文を入力してください。'); return; }
     var mode = getMode();
     if (!confirm('配信先「' + MODE_LABELS[mode] + '」での先頭1件分（個別画像＋共通画像）を、\n' +
-      'ふくちさんのLINEにテスト配信します。\n\nよろしいですか？')) return;
+      'ふくちさんのLINEにテスト配信します。\n\n' +
+      orderPlainText() + '\nよろしいですか？')) return;
     var btn = document.getElementById('testBtn');
     btn.disabled = true;
     google.script.run
@@ -607,6 +636,7 @@
         msg += '送信予定：' + s.totalMessages + '通\n';
         msg += '共通画像：' + s.commonCount + '枚\n';
         if (s.warningCount > 0) msg += '警告：' + s.warningCount + '件（配信対象外）\n';
+        msg += '\n' + orderPlainText();
         msg += '\n⚠️ ' + s.totalMessages + '通を実際にLINE配信します。\n';
         msg += '配信したメッセージは取り消せません。\n\n';
         msg += '続行しますか？';

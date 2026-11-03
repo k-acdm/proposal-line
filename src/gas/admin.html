@@ -203,6 +203,71 @@
     margin-bottom: 16px;
     font-size: 14px;
   }
+  /* 送信順の並べ替え */
+  .order-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .order-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid #e8e8e8;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    background: #fcfcfc;
+  }
+  .order-item:last-child { margin-bottom: 0; }
+  .order-no {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    line-height: 26px;
+    text-align: center;
+    border-radius: 50%;
+    background: #ecf0f1;
+    color: #555;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .order-label {
+    flex: 1 1 auto;
+    font-size: 14px;
+    min-width: 0;
+  }
+  .order-sub {
+    display: block;
+    font-size: 12px;
+    color: #95a5a6;
+  }
+  .order-btns {
+    flex: none;
+    display: flex;
+    gap: 6px;
+  }
+  .btn-move {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: white;
+    color: #34495e;
+    cursor: pointer;
+  }
+  .btn-move:hover:enabled { background: #ecf0f1; }
+  .btn-move:disabled {
+    color: #d5dbdb;
+    border-color: #eee;
+    background: white;
+    cursor: not-allowed;
+  }
+
   .error-box {
     background: #fdecea;
     color: #c0392b;
@@ -257,6 +322,7 @@
 <script>
   var MODE_LABELS = { guardian: '保護者のみ', student: '生徒のみ', both: '保護者＋生徒 両方' };
   var previewShown = false; // プレビュー表示中なら配信先切替で自動再取得
+  var sendOrder = [];       // 送信順トークン（プレビューのたびに既定へリセット）
 
   function getMode() {
     var el = document.querySelector('input[name="mode"]:checked');
@@ -271,6 +337,7 @@
     var btn = document.getElementById('previewBtn');
     btn.disabled = true;
     previewShown = false;
+    sendOrder = []; // 照合し直すので送信順もクリア（成功時に既定順で再構築される）
     document.getElementById('result').innerHTML =
       '<div class="loading">照合中…</div>';
     google.script.run
@@ -323,8 +390,16 @@
       data.commons.forEach(function(c, i) {
         html += '<span class="badge badge-common">' + (i + 1) + '. ' + escapeHtml(c.fileName) + '</span> ';
       });
-      html += '<p class="hint" style="margin:8px 0 0;">各送信先へ、個別画像の後にこの順で送ります。</p></div>';
+      html += '<p class="hint" style="margin:8px 0 0;">各送信先へ全員共通で送る画像です。送信順は下の「送信順」で変更できます。</p></div>';
     }
+
+    // 送信順（並べ替え）
+    html += '<h2>送信順</h2>';
+    html += '<div class="card">' +
+      '<ul class="order-list" id="orderList"></ul>' +
+      '<p class="hint" style="margin:10px 0 0;">「↑」「↓」で1つずつ入れ替えます。この順序がテスト配信・本配信の両方に反映されます。' +
+      '（「配信対象プレビュー」を押すたびに既定の順序に戻ります）</p>' +
+      '</div>';
 
     // 配信対象（正常）
     html += '<h2>配信対象（' + data.targets.length + '名）</h2>';
@@ -374,6 +449,61 @@
     }
 
     document.getElementById('result').innerHTML = html;
+
+    // 送信順はプレビューを押すたびに既定（あいさつ文 → 個別画像 → 共通画像）へリセットする
+    sendOrder = (data.order || []).slice();
+    renderOrderList();
+  }
+
+  // === 送信順の並べ替え ===
+
+  /**
+   * 送信順トークンの表示ラベルを返す。
+   * greeting / individual / common:<ファイル名>
+   */
+  function orderLabel(token) {
+    if (token === 'greeting') {
+      return '<b>あいさつ文</b><span class="order-sub">テキスト1通</span>';
+    }
+    if (token === 'individual') {
+      return '<b>個別画像</b><span class="order-sub">生徒ごとの提案書（兄弟がいる場合は兄弟順位の昇順でまとめて送信。この塊の中の順序は変更できません）</span>';
+    }
+    if (token.indexOf('common:') === 0) {
+      var fileName = token.substring('common:'.length);
+      return '<b>共通画像</b> <span class="file-name">' + escapeHtml(fileName) + '</span>';
+    }
+    return escapeHtml(token);
+  }
+
+  function renderOrderList() {
+    var ul = document.getElementById('orderList');
+    if (!ul) return;
+    var html = '';
+    sendOrder.forEach(function(token, i) {
+      var isFirst = (i === 0);
+      var isLast = (i === sendOrder.length - 1);
+      html += '<li class="order-item">' +
+        '<span class="order-no">' + (i + 1) + '</span>' +
+        '<span class="order-label">' + orderLabel(token) + '</span>' +
+        '<span class="order-btns">' +
+          '<button type="button" class="btn-move" title="上へ" onclick="moveOrderItem(' + i + ', -1)"' +
+            (isFirst ? ' disabled' : '') + '>&#9650;</button>' +
+          '<button type="button" class="btn-move" title="下へ" onclick="moveOrderItem(' + i + ', 1)"' +
+            (isLast ? ' disabled' : '') + '>&#9660;</button>' +
+        '</span>' +
+        '</li>';
+    });
+    ul.innerHTML = html;
+  }
+
+  function moveOrderItem(index, delta) {
+    var to = index + delta;
+    if (index < 0 || index >= sendOrder.length) return;
+    if (to < 0 || to >= sendOrder.length) return; // 先頭の↑・末尾の↓は何も起きない
+    var tmp = sendOrder[index];
+    sendOrder[index] = sendOrder[to];
+    sendOrder[to] = tmp;
+    renderOrderList();
   }
 
   function destBadges(t) {
@@ -452,7 +582,7 @@
         btn.disabled = false;
         alert('❌ エラー: ' + ((err && err.message) ? err.message : err));
       })
-      .testSendSchedule(greeting, mode);
+      .testSendSchedule(greeting, mode, sendOrder);
   }
 
   function executeReal() {
@@ -501,7 +631,7 @@
             btn.disabled = false;
             renderError(err);
           })
-          .executeScheduleDelivery(greeting, mode);
+          .executeScheduleDelivery(greeting, mode, sendOrder);
       })
       .withFailureHandler(function(err) {
         btn.disabled = false;

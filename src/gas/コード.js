@@ -210,10 +210,23 @@ var LINE_MAX_MESSAGES_PER_PUSH = 5;
 var COMMON_IMAGE_PREFIX = '_';
 
 /**
+ * 送信順の項目トークン（管理画面と共有する識別子）。
+ *   greeting            … あいさつ文（1項目）
+ *   individual          … 個別画像（兄弟がいる場合も1つの塊＝1項目。塊の中の順序は兄弟順位の昇順で固定）
+ *   common:<ファイル名> … 共通画像1枚（1枚＝1項目）
+ */
+var SEND_ITEM_GREETING = 'greeting';
+var SEND_ITEM_INDIVIDUAL = 'individual';
+var SEND_ITEM_COMMON_PREFIX = 'common:';
+
+/**
  * 配信対象の一覧を返す（管理画面から google.script.run で呼ばれる）。
  * プライバシー配慮のため、LINE_USER_ID の実値と fileId は返さず「有無(boolean)」のみ返す。
+ * order には既定の送信順（従来どおり「あいさつ文 → 個別画像 → 共通画像（自然順）」）を返す。
+ * 管理画面はこれを並べ替えリストの初期状態として表示し、並べ替えた結果を配信時に渡す。
+ *
  * @param {string=} mode - 'guardian' | 'student' | 'both'（省略時 both）
- * @return {{targets: Object[], warnings: Object[], commons: Object[], summary: Object}}
+ * @return {{targets: Object[], warnings: Object[], commons: Object[], order: string[], summary: Object}}
  */
 function getDeliveryTargets(mode) {
   var d = _computeDelivery(mode);
@@ -221,6 +234,7 @@ function getDeliveryTargets(mode) {
     targets: d.targets.map(_sanitizeRecord),
     warnings: d.warnings.map(_sanitizeRecord),
     commons: d.commons.map(function(c) { return { fileName: c.fileName }; }),
+    order: _defaultSendOrder(d.commons),
     summary: d.summary
   };
 }
@@ -458,10 +472,53 @@ function _buildSendUnits(targets, commons) {
     });
     u.fileIds = u.items.map(function(it) { return it.record.fileId; });
     u.commonIds = commonIds;
+    u.commons = commons; // 送信順トークン（common:<ファイル名>）から fileId を引くため
     // あいさつ文1 + 個別 + 共通 を5件ずつに分割した回数
     u.chunkCount = Math.ceil((1 + u.fileIds.length + commonIds.length) / LINE_MAX_MESSAGES_PER_PUSH);
   });
   return units;
+}
+
+/**
+ * 送信順の既定値を返す（従来どおりの順序）。
+ * 「あいさつ文 → 個別画像 → 共通画像（ファイル名の自然順）」。
+ * @param {Object[]} commons - 自然順にソート済みの共通画像 {fileName, fileId}
+ * @return {string[]} 送信順トークン配列
+ */
+function _defaultSendOrder(commons) {
+  var order = [SEND_ITEM_GREETING, SEND_ITEM_INDIVIDUAL];
+  (commons || []).forEach(function(c) {
+    order.push(SEND_ITEM_COMMON_PREFIX + c.fileName);
+  });
+  return order;
+}
+
+/**
+ * 管理画面から渡された送信順を検証・正規化する。
+ * 省略時（プレビュー未実行など）は既定の順序を使う。
+ *
+ * プレビュー後に画像フォルダの共通画像が増減した場合、渡された順序は現状と
+ * 食い違う。その場合は黙って一部を落とさずエラーにし、プレビューのやり直しを促す。
+ *
+ * @param {string[]=} order - 送信順トークン配列
+ * @param {Object[]} commons - 自然順にソート済みの共通画像 {fileName, fileId}
+ * @return {string[]}
+ */
+function _normalizeSendOrder(order, commons) {
+  var def = _defaultSendOrder(commons);
+  if (order == null || !order.length) return def;
+
+  var given = order.map(String);
+  var a = def.slice().sort();
+  var b = given.slice().sort();
+  var same = a.length === b.length && a.every(function(v, i) { return v === b[i]; });
+  if (!same) {
+    throw new Error(
+      '送信順の指定が現在の画像フォルダの内容と一致しません。' +
+      '「配信対象プレビュー」をやり直してから配信してください。'
+    );
+  }
+  return given;
 }
 
 /**
@@ -675,10 +732,11 @@ function _escapeHtml(s) {
  *
  * @param {string} greetingText - あいさつ文
  * @param {string=} mode - 'guardian' | 'student' | 'both'（省略時 both）
+ * @param {string[]=} order - 管理画面で並べ替えた送信順（省略時は従来どおりの既定順）
  * @return {{success:boolean, names?:string[], fileNames?:string[], commonCount?:number,
  *           pushCount?:number, modeLabel?:string, error?:string}}
  */
-function testSendSchedule(greetingText, mode) {
+function testSendSchedule(greetingText, mode, order) {
   var greeting = _trim(greetingText);
   if (!greeting) {
     return { success: false, error: 'あいさつ文を入力してください。' };
@@ -691,9 +749,11 @@ function testSendSchedule(greetingText, mode) {
     return { success: false, error: '配信対象がいません（テスト送信できません）。' };
   }
 
+  var sendOrder = _normalizeSendOrder(order, d.commons);
+
   var first = d.sends[0];
   var testGreeting = '🧪 テスト配信\n' + greeting;
-  var chunks = _buildScheduleMessageChunks(testGreeting, first.fileIds, first.commonIds);
+  var chunks = _buildScheduleMessageChunks(testGreeting, first.fileIds, first.commons, sendOrder);
   var res = _pushLineMessageChunks(adminId, chunks);
 
   return {
@@ -709,18 +769,20 @@ function testSendSchedule(greetingText, mode) {
 
 /**
  * 本配信：選択した配信先モードで、送信先（ユニークな LINE_USER_ID）ごとに
- * 「あいさつ文 → 個別画像（兄弟がいれば兄弟順位順）→ 共通画像（ファイル名の自然順）」を送る。
- * 5メッセージを超える場合は複数回の push に分割する（あいさつ文は最初の push のみ）。
+ * 管理画面で指定された送信順（既定は「あいさつ文 → 個別画像（兄弟がいれば兄弟順位順）
+ * → 共通画像（ファイル名の自然順）」）で送る。
+ * 5メッセージを超える場合は、並べ替え後の順序どおりに先頭から5件ずつ push に分割する。
  *
  * 【重複除去】1つの LINE_USER_ID には1回の配信だけ（_buildSendUnits でまとめ済み）。
  *   - 送信通数 = 送信先数（getDeliveryTargets の totalMessages と一致）
  *
  * @param {string} greetingText - あいさつ文（必須）
  * @param {string=} mode - 'guardian' | 'student' | 'both'（省略時 both）
+ * @param {string[]=} order - 管理画面で並べ替えた送信順（省略時は従来どおりの既定順）
  * @return {{total:number, success:number, failed:number, errors:string[], targetCount:number,
  *           pushTotal:number, imageCount:number, commonCount:number, modeLabel:string}}
  */
-function executeScheduleDelivery(greetingText, mode) {
+function executeScheduleDelivery(greetingText, mode, order) {
   var greeting = _trim(greetingText);
   if (!greeting) {
     throw new Error('あいさつ文を入力してください（本配信には必須です）。');
@@ -730,6 +792,8 @@ function executeScheduleDelivery(greetingText, mode) {
   if (d.sends.length === 0) {
     throw new Error('配信対象がいません。本配信を中止しました。');
   }
+
+  var sendOrder = _normalizeSendOrder(order, d.commons);
 
   var sends = d.sends;
   var total = sends.length;
@@ -741,7 +805,7 @@ function executeScheduleDelivery(greetingText, mode) {
   for (var i = 0; i < sends.length; i++) {
     var s = sends[i];
     var label = s.items.map(function(it) { return it.record.name; }).join('・');
-    var chunks = _buildScheduleMessageChunks(greeting, s.fileIds, s.commonIds);
+    var chunks = _buildScheduleMessageChunks(greeting, s.fileIds, s.commons, sendOrder);
     var res = _pushLineMessageChunks(s.userId, chunks);
     pushTotal += res.pushed;
     if (res.success) {
@@ -878,25 +942,50 @@ function _safe(fn) {
 /**
  * 「あいさつ文 → 個別画像 → 共通画像」のメッセージ列を組み立て、
  * LINE push 1回あたりの上限（5件）ごとに分割して返す。
- * あいさつ文は先頭なので、必ず最初の push にのみ含まれる。
  * 画像URLは段階1で確定した公開画像URL（lh3/thumbnail 直リンク）を使用する。
  * ※ ?image= はHTMLプレビューを返すためLINEには使えない。fileId から直URLを生成する。
  *
+ * 送信順（order）は管理画面で並べ替えられたトークン配列。あいさつ文が先頭でない場合も
+ * 「並べ替え後の順序どおりに先頭から5件ずつ」分割する（あいさつ文を特別扱いしない）。
+ * 個別画像の塊の中身（兄弟順位の昇順）は並べ替えの対象外で、fileIds の順のまま。
+ *
  * @param {string} greeting - 本文（テスト時は冒頭に🧪付与済み）
  * @param {string[]} fileIds - 個別画像の fileId（兄弟順位順）
- * @param {string[]} commonIds - 共通画像の fileId（ファイル名の自然順）
+ * @param {Object[]} commons - 共通画像 {fileName, fileId}（ファイル名の自然順）
+ * @param {string[]} order - 正規化済みの送信順トークン配列（_normalizeSendOrder の戻り値）
  * @return {Object[][]} LINE messages の配列（push 単位）
  */
-function _buildScheduleMessageChunks(greeting, fileIds, commonIds) {
-  var messages = [{ type: 'text', text: greeting }];
-  fileIds.concat(commonIds || []).forEach(function(fileId) {
+function _buildScheduleMessageChunks(greeting, fileIds, commons, order) {
+  var commonIdByName = {};
+  (commons || []).forEach(function(c) { commonIdByName[c.fileName] = c.fileId; });
+
+  function imageMessage(fileId) {
     var urls = _buildImageUrls(fileId);
-    messages.push({
+    return {
       type: 'image',
       originalContentUrl: urls.originalContentUrl,
       previewImageUrl: urls.previewImageUrl
-    });
+    };
+  }
+
+  var messages = [];
+  order.forEach(function(token) {
+    if (token === SEND_ITEM_GREETING) {
+      messages.push({ type: 'text', text: greeting });
+      return;
+    }
+    if (token === SEND_ITEM_INDIVIDUAL) {
+      (fileIds || []).forEach(function(fileId) { messages.push(imageMessage(fileId)); });
+      return;
+    }
+    if (token.indexOf(SEND_ITEM_COMMON_PREFIX) === 0) {
+      var fileName = token.substring(SEND_ITEM_COMMON_PREFIX.length);
+      if (commonIdByName.hasOwnProperty(fileName)) {
+        messages.push(imageMessage(commonIdByName[fileName]));
+      }
+    }
   });
+
   var chunks = [];
   for (var i = 0; i < messages.length; i += LINE_MAX_MESSAGES_PER_PUSH) {
     chunks.push(messages.slice(i, i + LINE_MAX_MESSAGES_PER_PUSH));
